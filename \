@@ -1,0 +1,105 @@
+
+// stack mod
+struct Stack<'a> {
+    mem: &'a mut [u16],
+    top: isize,
+    size: usize,
+}
+
+impl<'a> Stack<'a> {
+    fn new(mem: &'a mut [u16], size: usize) -> Self {
+        Stack {
+            mem: mem,
+            top: -1,
+            size: size,
+        }
+    }
+
+    fn push(&mut self, val: u16) -> Option<()> {
+        if self.size as isize - self.top == 0 {
+            return None;
+        }
+        
+        self.top += 1;
+        self.mem[self.top as usize] = val;
+
+        Some(())
+    }
+
+    fn pop(&mut self) -> Option<u16> {
+        if self.top < 0 {
+            return None;
+        }
+        
+        let val = self.mem[self.top as usize];
+        self.top -= 1;
+
+        Some(val)
+    }
+}
+
+struct Memory<'a> {
+    bulk: [u16; 0xFFF],
+    rom: &'a [u16],
+    program: &'a [u16],
+}
+
+impl<'a> Memory<'a> {
+    fn new(mem: [u16; 0xFFF]) -> Self {
+        let rom_ref = &mem[0..0x1ff];
+        let program_ref = &mem[0x200..];
+
+        let memory = Memory {
+            bulk: mem,
+            rom: rom_ref,
+            program: program_ref
+        };
+        
+        memory
+    }
+}
+
+const NUM_GP_REGS: usize = 16;
+const PC_START_ADDR: u16 = 0x200;
+struct HwContext<'a> {
+    i_reg: u16,
+    pc: u16,
+    regs: [u8; NUM_GP_REGS],
+    delay_reg: u8,
+    timer_reg: u8,
+    stack: Stack<'a>,
+}
+
+impl<'a> HwContext<'a> {
+    fn new(stack: Stack<'a> ) -> Self {
+        HwContext {
+            i_reg: 0,
+            pc: PC_START_ADDR,
+            regs: [0; NUM_GP_REGS],
+            delay_reg: 0,
+            timer_reg: 0,
+            stack: stack,
+        }
+    }
+}
+
+enum OpCode{}
+
+trait PipeLine {
+    fn fetch(&self) -> Option<u16>;
+    fn decode(&self, instr: u16) -> Option<(OpCode, u16)>;
+    fn execute(&self, icode: OpCode, arg: u16) -> Option<()>;
+}
+
+//impl PipeLine for HwContext {
+//    fn fetch(&self) -> Option<u16> {
+//    }
+//    fn decode(&self, instr: u16) -> Option<(OpCode, u16)>;
+//    fn execute(&self, (icode: OpCode, arg: u16)) -> Option<()>;
+//}
+
+fn main() {
+    let mut mem: [u16; 16] = [0; 16];
+    let mut stack = Stack::new(&mut mem, 16);
+    let mut hw_ctx = HwContext::new(stack);
+}
