@@ -2,7 +2,6 @@ mod stack;
 
 use stack::*;
 use std::collections::HashMap;
-use std::mem;
 
 const NUM_GP_REGS: usize = 16;
 const PC_START_ADDR: u16 = 0x200;
@@ -31,10 +30,11 @@ impl Memory {
         &self.memory[EXE_BEGIN_ADDR..EXE_END_ADDR] 
     }
 
-    fn get_instruction(&self, addr: u16) -> u16 {        
-        let byte_high = (self.memory[addr as usize] as u16);
-        let byte_low = (self.memory[(addr + 1) as usize] as u16);
-        (byte_high << 8) | byte_low
+    fn get_instruction(&self, addr: u16) -> u16 {
+        let high_byte: u16 = self.memory[addr as usize] as u16;
+        let low_byte: u16 = self.memory[(addr + 1) as usize] as u16;
+
+        high_byte << 8 | low_byte
     }
 }
 
@@ -305,6 +305,5 @@ use std::fs::File;
 
 fn main() {
     let mut emulator = Emulator::new("/home/kobein/evo/rust/chip8_opcode/res/INVADERS".to_string());
-
     emulator.execute_cycle();
 }
