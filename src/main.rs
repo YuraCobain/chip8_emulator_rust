@@ -94,12 +94,13 @@ fn sys(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
 
 fn jp(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
     println!("jp");
+    ctx.pc = to_addr((arg.1, arg.2, arg.3));
     Some(())
 }
 
 fn call(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
     ctx.stack.push(ctx.pc);
-    ctx.pc = (arg.1 as u16) << 8 | (arg.2 as u16) << 4 | (arg.3 as u16);
+    ctx.pc = to_addr((arg.1, arg.2, arg.3));
     println!("call: {:?} on addr {:x}", arg, ctx.pc);
     Some(())
 }
@@ -121,6 +122,7 @@ fn se_reg(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
 
 fn ld_byte(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
     println!("ld_byte");
+    ctx.regs[arg.1 as usize] = to_u8((arg.2, arg.3));
     Some(())
 }
 
@@ -134,6 +136,56 @@ fn ld_reg(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
     Some(())
 }
 
+fn or(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("or");
+    Some(())
+}
+
+fn and(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("and");
+    Some(())
+}
+
+fn xor(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("xor");
+    Some(())
+}
+
+fn add(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("add");
+    Some(())
+}
+
+fn sub(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("sub");
+    Some(())
+}
+
+fn shr(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("shr");
+    Some(())
+}
+
+fn subn(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("subn");
+    Some(())
+}
+
+fn shl(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("shl");
+    Some(())
+}
+
+fn sne(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("she");
+    Some(())
+}
+
+fn ld_i_a(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("ld_i_a");
+    ctx.i_reg = to_addr((arg.1, arg.2, arg.3));
+    Some(())
+}
 type ArgOctets = (u8, u8, u8, u8);
 type InstructionExecutor = fn(ctx: &mut CPU, arg: ArgOctets) -> Option<()>;
 
@@ -162,6 +214,7 @@ impl ISA {
         isa.isa_map.insert(InstructionCode::LD_BYTE, InstructionDetails { executor: ld_byte});
         isa.isa_map.insert(InstructionCode::ADD_REG, InstructionDetails { executor: add_reg});
         isa.isa_map.insert(InstructionCode::LD_REG,  InstructionDetails { executor: ld_reg});
+        isa.isa_map.insert(InstructionCode::LD_I_A,  InstructionDetails { executor: ld_i_a});
 
         isa
     }
@@ -257,6 +310,14 @@ fn to_octets(x: u16) -> (u8, u8, u8, u8) {
     (oct3, oct2, oct1, oct0)
 }
 
+fn to_addr((oct0, oct1, oct2) : (u8, u8, u8)) -> u16 {
+    (oct0 as u16) << 8 | (oct1 as u16) << 4 | (oct2 as u16)
+}
+
+fn to_u8((oct0, oct1): (u8, u8)) -> u8 {
+    (oct0 << 4) | oct1
+}
+
 trait PipeLine {
     fn fetch(&mut self, mem: &Memory) -> Option<u16>;
     fn decode(&self, instruction: u16) -> Option<(InstructionCode, ArgOctets)>;
@@ -287,6 +348,7 @@ impl PipeLine for CPU
             (0x6, _, _, _) =>  InstructionCode::LD_BYTE,
             (0x7, _, _, _) =>  InstructionCode::ADD_REG,
             (0x8, _, _, 0x0) =>  InstructionCode::LD_REG,
+            (0xA, _, _, _) =>  InstructionCode::LD_I_A,
             (_, _, _, _) => InstructionCode::CLS,
         };
 
