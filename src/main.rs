@@ -1,60 +1,34 @@
 mod stack;
+mod memory;
+mod sprites;
 
 use stack::*;
+use memory::*;
+use sprites::*;
+
+use std::io;
+use std::io::prelude::*;
+use std::fs::File;
 use std::collections::HashMap;
 
-const NUM_GP_REGS: usize = 16;
-const PC_START_ADDR: u16 = 0x200;
-const ROM_BEGIN_ADDR: usize = 0;
-const ROM_END_ADDR: usize = 0x1FF;
-const EXE_BEGIN_ADDR: usize = 0x200;
-const EXE_END_ADDR: usize = 0xFFF;
-const MEM_SIZE: usize = 0xFFF;
-
-struct Memory {
-    memory: [u8; MEM_SIZE],
-}
-
-impl Memory {
-    fn new(bin: [u8; MEM_SIZE]) -> Self {
-        Memory {
-            memory: bin,
-        }
-    }
-
-    fn rom_slice(&self) -> &[u8] {
-        &self.memory[ROM_BEGIN_ADDR..ROM_END_ADDR]
-    }
-
-    fn exe_slice(&self) -> &[u8] {
-        &self.memory[EXE_BEGIN_ADDR..EXE_END_ADDR] 
-    }
-
-    fn get_instruction(&self, addr: u16) -> u16 {
-        let high_byte: u16 = self.memory[addr as usize] as u16;
-        let low_byte: u16 = self.memory[(addr + 1) as usize] as u16;
-
-        high_byte << 8 | low_byte
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Hash)]
-enum InstructionCode{
+enum OpCode{
     CLS,
     RET,
     SYS,
     JP,
     CALL,
     SE_BYTE, 
-    SNE_REG,
+    SNE_BYTE,
     SE_REG,  
+    SNE_REG,  
     LD_BYTE,
-    ADD_REG,
+    ADD_BYTE,
     LD_REG,  //----
     OR,
     AND,
     XOR,
-    ADD,
+    ADD_REG,
     SUB,
     SHR,
     SUBN,
@@ -84,6 +58,7 @@ fn clr(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
 
 fn ret(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
     println!("ret");
+    ctx.pc = ctx.stack.pop().unwrap();
     Some(())
 }
 
@@ -94,55 +69,134 @@ fn sys(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
 
 fn jp(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
     println!("jp");
+    ctx.pc = to_addr((arg.1, arg.2, arg.3));
     Some(())
 }
 
 fn call(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
     ctx.stack.push(ctx.pc);
-    ctx.pc = (arg.1 as u16) << 8 | (arg.2 as u16) << 4 | (arg.3 as u16);
+    ctx.pc = to_addr((arg.1, arg.2, arg.3));
     println!("call: {:?} on addr {:x}", arg, ctx.pc);
     Some(())
 }
 
 fn se_byte(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    if ctx.regs[arg.1 as usize] == to_u8((arg.2, arg.3)) {
+        ctx.pc += 2;
+    }
     println!("se_byte");
     Some(())
 }
 
-fn sne_reg(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    println!("sne_reg");
+fn sne_byte(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    if ctx.regs[arg.1 as usize] != to_u8((arg.2, arg.3)) {
+        ctx.pc += 2;
+    }
+    println!("sne_byte");
     Some(())
 }
 
 fn se_reg(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    if ctx.regs[arg.1 as usize] == ctx.regs[arg.2 as usize] {
+        ctx.pc += 2;
+    }
+    println!("se_reg");
+    Some(())
+}
+
+fn sne_reg(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    if ctx.regs[arg.1 as usize] != ctx.regs[arg.2 as usize] {
+        ctx.pc += 2;
+    }
     println!("se_reg");
     Some(())
 }
 
 fn ld_byte(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
     println!("ld_byte");
+    ctx.regs[arg.1 as usize] = to_u8((arg.2, arg.3));
     Some(())
 }
 
-fn add_reg(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    println!("add_reg");
+fn add_byte(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    ctx.regs[arg.1 as usize] += to_u8((arg.2, arg.3));
+    println!("add_byte");
     Some(())
 }
 
 fn ld_reg(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    ctx.regs[arg.1 as usize] += ctx.regs[arg.2 as usize];
     println!("ld_reg");
     Some(())
 }
 
-type ArgOctets = (u8, u8, u8, u8);
-type InstructionExecutor = fn(ctx: &mut CPU, arg: ArgOctets) -> Option<()>;
+fn or(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    ctx.regs[arg.1 as usize] |= ctx.regs[arg.2 as usize];
+    println!("or");
+    Some(())
+}
 
-struct InstructionDetails {
-    executor: InstructionExecutor,
+fn and(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    ctx.regs[arg.1 as usize] &= ctx.regs[arg.2 as usize];
+    println!("and");
+    Some(())
+}
+
+fn xor(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    ctx.regs[arg.1 as usize] ^= ctx.regs[arg.2 as usize];
+    println!("xor");
+    Some(())
+}
+
+fn add(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    ctx.regs[0xF] = (ctx.regs[arg.1 as usize] > (0xFF - ctx.regs[arg.2 as usize])) as u8;
+    ctx.regs[arg.1 as usize] += ctx.regs[arg.2 as usize];
+    println!("add");
+    Some(())
+}
+
+fn sub(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    ctx.regs[0xF] = (ctx.regs[arg.1 as usize] > ctx.regs[arg.2 as usize]) as u8;
+    ctx.regs[arg.1 as usize] += ctx.regs[arg.2 as usize];
+    println!("sub");
+    Some(())
+}
+
+fn shr(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    ctx.regs[0xF] = (arg.1 >> 7);
+    println!("shr");
+    Some(())
+}
+
+fn subn(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("subn");
+    Some(())
+}
+
+fn shl(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("shl");
+    Some(())
+}
+
+fn sne(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("she");
+    Some(())
+}
+
+fn ld_i_a(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
+    println!("ld_i_a");
+    ctx.i_reg = to_addr((arg.1, arg.2, arg.3));
+    Some(())
+}
+type ArgOctets = (u8, u8, u8, u8);
+type OpCodeExe = fn(ctx: &mut CPU, arg: ArgOctets) -> Option<()>;
+
+struct OpCodeHandler {
+    executor: OpCodeExe,
 }
 
 struct ISA {
-    isa_map: HashMap<InstructionCode, InstructionDetails>,
+    isa_map: HashMap<OpCode, OpCodeHandler>,
 }
 
 impl ISA {
@@ -151,23 +205,27 @@ impl ISA {
             isa_map: HashMap::new(),
         };
 
-        isa.isa_map.insert(InstructionCode::CLS,     InstructionDetails { executor: clr});
-        isa.isa_map.insert(InstructionCode::RET,     InstructionDetails { executor: ret});
-        isa.isa_map.insert(InstructionCode::SYS,     InstructionDetails { executor: sys});
-        isa.isa_map.insert(InstructionCode::JP,      InstructionDetails { executor: jp});
-        isa.isa_map.insert(InstructionCode::CALL,    InstructionDetails { executor: call});
-        isa.isa_map.insert(InstructionCode::SE_BYTE, InstructionDetails { executor: se_byte});
-        isa.isa_map.insert(InstructionCode::SNE_REG, InstructionDetails { executor: sne_reg});
-        isa.isa_map.insert(InstructionCode::SE_REG,  InstructionDetails { executor: se_reg});
-        isa.isa_map.insert(InstructionCode::LD_BYTE, InstructionDetails { executor: ld_byte});
-        isa.isa_map.insert(InstructionCode::ADD_REG, InstructionDetails { executor: add_reg});
-        isa.isa_map.insert(InstructionCode::LD_REG,  InstructionDetails { executor: ld_reg});
+        isa.isa_map.insert(OpCode::CLS,      OpCodeHandler { executor: clr});
+        isa.isa_map.insert(OpCode::RET,      OpCodeHandler { executor: ret});
+        isa.isa_map.insert(OpCode::SYS,      OpCodeHandler { executor: sys});
+        isa.isa_map.insert(OpCode::JP,       OpCodeHandler { executor: jp});
+        isa.isa_map.insert(OpCode::CALL,     OpCodeHandler { executor: call});
+        isa.isa_map.insert(OpCode::SE_BYTE,  OpCodeHandler { executor: se_byte});
+        isa.isa_map.insert(OpCode::SNE_BYTE, OpCodeHandler { executor: sne_byte});
+        isa.isa_map.insert(OpCode::SE_REG,   OpCodeHandler { executor: se_reg});
+        isa.isa_map.insert(OpCode::SNE_REG,  OpCodeHandler { executor: sne_reg});
+        isa.isa_map.insert(OpCode::LD_BYTE,  OpCodeHandler { executor: ld_byte});
+        isa.isa_map.insert(OpCode::ADD_BYTE, OpCodeHandler { executor: add_byte});
+        isa.isa_map.insert(OpCode::LD_REG,   OpCodeHandler { executor: ld_reg});
+        isa.isa_map.insert(OpCode::LD_I_A,   OpCodeHandler { executor: ld_i_a});
 
         isa
     }
 }
 
-struct CPU {
+const NUM_GP_REGS: usize = 16;
+const PC_START_ADDR: u16 = 0x200;
+struct CPU<'a> {
     i_reg: u16,
     pc: u16,
     regs: [u8; NUM_GP_REGS],
@@ -175,11 +233,12 @@ struct CPU {
     timer_reg: u8,
     stack: Stack,
     isa: ISA,
+    mem_bus: &'a (MemoryBus +  'a), 
 }
 
-impl CPU
+impl<'a> CPU<'a>
 {
-    fn new() -> Self {
+    fn new(mem_bus: &'a MemoryBus) -> CPU<'a> {
         CPU
         {
             i_reg: 0,
@@ -189,58 +248,10 @@ impl CPU
             timer_reg: 0,
             stack: Stack::new(),
             isa: ISA::new(),
-        }
-    }
-}
-
-struct Emulator {
-    cpu: CPU,
-    memory: Memory, 
-}
-
-impl Emulator {
-    fn new(path: String) -> Self {
-        let bin = Emulator::load_game(path);
-
-        Emulator {
-            cpu: CPU::new(),
-            memory: Memory::new(bin),
+            mem_bus: mem_bus,
         }
     }
 
-    fn execute_cycle(&mut self) -> Option<()> {
-        for i in 0..10 {
-            let instruction = self.cpu.fetch(&self.memory).unwrap();
-            let (icode, arg) : (InstructionCode, ArgOctets) = self.cpu.decode(instruction).unwrap();
-            let _ = self.cpu.execute(icode, arg).unwrap();
-        }
-
-        Some(())
-    }
-
-    fn load_game(path: String) -> [u8; MEM_SIZE] {
-        let mut f = File::open(path).unwrap();
-        let mut bin = [0; MEM_SIZE];
-
-        f.read(&mut bin[PC_START_ADDR as usize .. MEM_SIZE as usize]).unwrap();
-
-        let u16_bus = unsafe {
-            std::mem::transmute::<&[u8], &[u16]>(&bin)
-        };
-        let mut del = 0u16;
-        for i in 0..MEM_SIZE/2 {
-            if del % 16 == 0 {
-                println!("");
-            }
-
-            print!("{:04X}  ", u16_bus[i]);
-            del += 1;    
-        }
-
-        println!("");
-
-        bin
-    }
 
 }
 
@@ -257,53 +268,100 @@ fn to_octets(x: u16) -> (u8, u8, u8, u8) {
     (oct3, oct2, oct1, oct0)
 }
 
-trait PipeLine {
-    fn fetch(&mut self, mem: &Memory) -> Option<u16>;
-    fn decode(&self, instruction: u16) -> Option<(InstructionCode, ArgOctets)>;
-    fn execute(&mut self, icode: InstructionCode, arg: ArgOctets) -> Option<()>;
+fn to_addr((oct0, oct1, oct2) : (u8, u8, u8)) -> u16 {
+    (oct0 as u16) << 8 | (oct1 as u16) << 4 | (oct2 as u16)
 }
 
-impl PipeLine for CPU
+fn to_u8((oct0, oct1): (u8, u8)) -> u8 {
+    (oct0 << 4) | oct1
+}
+
+trait PipeLine {
+    fn fetch(&mut self) -> Option<u16>;
+    fn decode(&self, instruction: u16) -> Option<(OpCode, ArgOctets)>;
+    fn execute(&mut self, icode: OpCode, arg: ArgOctets) -> Option<()>;
+}
+
+impl<'a> PipeLine for CPU<'a>
 {
-    fn fetch(&mut self, mem: &Memory) -> Option<u16> {        
+    fn fetch(&mut self) -> Option<u16> {        
         let curr_pc = self.pc;
         self.pc += 2;
-        Some(mem.get_instruction(curr_pc))
+        Some(self.mem_bus.get_instruction(curr_pc).unwrap())
     }
 
-    fn decode(&self, instruction: u16) -> Option<(InstructionCode, ArgOctets)> {
+    fn decode(&self, instruction: u16) -> Option<(OpCode, ArgOctets)> {
         let octets = to_octets(instruction);
 
         println!("fetched instruction {:04x} -> {:?}", instruction, octets);
         let icode = match octets {
-            (0x0, 0x0, 0xE, 0x0) => InstructionCode::CLS,
-            (0x0, 0x0, 0xE, 0xE) => InstructionCode::RET,
-            (0x0, _, _, _) =>  InstructionCode::SYS,
-            (0x1, _, _, _) =>  InstructionCode::JP,
-            (0x2, _, _, _) =>  InstructionCode::CALL,
-            (0x3, _, _, _) =>  InstructionCode::SE_BYTE,
-            (0x4, _, _, _) =>  InstructionCode::SNE_REG,
-            (0x5, _, _, _) =>  InstructionCode::SE_REG,
-            (0x6, _, _, _) =>  InstructionCode::LD_BYTE,
-            (0x7, _, _, _) =>  InstructionCode::ADD_REG,
-            (0x8, _, _, 0x0) =>  InstructionCode::LD_REG,
-            (_, _, _, _) => InstructionCode::CLS,
+            (0x0, 0x0, 0xE, 0x0) => OpCode::CLS,
+            (0x0, 0x0, 0xE, 0xE) => OpCode::RET,
+            (0x0, _, _, _) =>  OpCode::SYS,
+            (0x1, _, _, _) =>  OpCode::JP,
+            (0x2, _, _, _) =>  OpCode::CALL,
+            (0x3, _, _, _) =>  OpCode::SE_BYTE,
+            (0x4, _, _, _) =>  OpCode::SNE_BYTE,
+            (0x5, _, _, _) =>  OpCode::SE_REG,
+            (0x6, _, _, _) =>  OpCode::LD_BYTE,
+            (0x7, _, _, _) =>  OpCode::ADD_BYTE,
+            (0x8, _, _, 0x0) =>  OpCode::LD_REG,
+            (0xA, _, _, _) =>  OpCode::LD_I_A,
+            (_, _, _, _) => OpCode::CLS,
         };
 
         Some((icode, octets)) 
     }
 
-    fn execute(&mut self, icode: InstructionCode, arg: ArgOctets) -> Option<()>{
+    fn execute(&mut self, icode: OpCode, arg: ArgOctets) -> Option<()>{
         (self.isa.isa_map[&icode].executor)(self, arg)
     }
 
 }
 
-use std::io;
-use std::io::prelude::*;
-use std::fs::File;
+fn load_game(path: String) -> Vec<u8> {
+    let mut f = File::open(path).unwrap();
+    let metadata = f.metadata().unwrap();
+    let fsize = metadata.len() as usize;
+    let mut exe = Vec::with_capacity(fsize);
+
+    f.read_to_end(&mut exe).unwrap();
+
+    let u16_bus = unsafe {
+        std::mem::transmute::<&[u8], &[u16]>(exe.as_slice())
+    };
+    let mut del = 0u16;
+    for i in 0..fsize/2 {
+        if del % 16 == 0 {
+            println!("");
+        }
+
+        print!("{:04X}  ", u16_bus[i]);
+        del += 1;    
+    }
+
+    println!("exe len {}", exe.len());
+
+    exe
+}
+
+fn execute_cycle<T: PipeLine>(emu: &mut T) -> Option<()> {
+    for i in 0..10 {
+        let instruction = emu.fetch().unwrap();
+        let (icode, arg) : (OpCode, ArgOctets) = emu.decode(instruction).unwrap();
+        let _ = emu.execute(icode, arg).unwrap();
+    }
+
+    Some(())
+}
 
 fn main() {
-    let mut emulator = Emulator::new("/home/kobein/evo/rust/chip8_opcode/res/INVADERS".to_string());
-    emulator.execute_cycle();
+    let exe = load_game("/home/kobein/evo/rust/chip8_opcode/res/INVADERS".to_string());
+
+    let mem = Memory::new()
+        .load_sprites(SPRITES)
+        .load_exe(exe.as_slice())
+        .build();
+    let mut emulator = CPU::new(&mem as &MemoryBus);
+    execute_cycle(&mut emulator);
 }
