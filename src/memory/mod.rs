@@ -13,6 +13,8 @@ pub struct Memory {
 pub trait MemoryBus {
     fn get_instruction(&self, addr: usize) -> Option<u16>;
     fn get_sprite_addr(&self, snum: u8) -> Option<usize>;
+    fn set_u8(&mut self, addr: usize, val: u8) -> Option<()>;
+    fn get_u8(&mut self, addr: usize) -> Option<u8>;
 }
 
 impl Clone for Memory {
@@ -51,6 +53,15 @@ impl MemoryBus for Memory {
 
     fn get_sprite_addr(&self, snum: u8) -> Option<usize> {
         Some(ROM_START_ADDR + (snum as usize)*SPRITE_SIZE)
+    }
+
+    fn set_u8(&mut self, addr: usize, val: u8) -> Option<()> {
+        self.memory[addr] = val;
+        Some(())
+    }
+
+    fn get_u8(&mut self, addr: usize) -> Option<u8> {
+        Some(self.memory[addr])
     }
 }
 

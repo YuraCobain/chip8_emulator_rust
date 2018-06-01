@@ -16,12 +16,11 @@ use std::fs::File;
 use std::collections::HashMap;
 
 type ArgOctets = (u8, u8, u8, u8);
-type OpCodeExe = fn(ctx: &mut CPU, arg: ArgOctets) -> Option<()>;
 type Id = u16;
 
 struct OpCodeHandler {
     name: &'static str,
-    executor: OpCodeExe,
+    executor: fn(ctx: &mut CPU, arg: ArgOctets) -> Option<()>,
 }
 
 struct ISA {
@@ -381,6 +380,47 @@ impl ISA {
                  },
              });
 
+         inst.register_opcode(
+             0xF033,
+             OpCodeHandler {
+                 name: "LD_B_VX",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     let mut x = ctx.regs[arg.1 as usize];
+
+                     for i in 3..0 {
+                         let d = x % 10;
+                         ctx.mem_bus.set_u8(ctx.ireg + i, x % 10);
+                         x /= 10;
+                         println!("{}", d);
+                     }
+                     ctx.ireg = ctx.mem_bus.get_sprite_addr(arg.1).unwrap();
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xF055,
+             OpCodeHandler {
+                 name: "LD_I_VX",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     for i in 0..arg.1 as usize {
+                         ctx.mem_bus.set_u8(ctx.ireg + i, ctx.regs[i as usize]);
+                     }
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xF065,
+             OpCodeHandler {
+                 name: "LD_VX_I",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     for i in 0..arg.1 as usize {
+                         ctx.regs[i as usize] = ctx.mem_bus.get_u8(ctx.ireg + i).unwrap();
+                     }
+                     Some(())
+                 },
+             });
          inst
     }
 
@@ -401,12 +441,12 @@ struct CPU<'a> {
     timer_reg: u8,
     stack: Stack,
     isa: ISA,
-    mem_bus: &'a (MemoryBus +  'a), 
+    mem_bus: &'a mut (MemoryBus + 'a), 
 }
 
 impl<'a> CPU<'a>
 {
-    fn new(mem_bus: &'a MemoryBus) -> CPU<'a> {
+    fn new(mem_bus: &'a mut MemoryBus) -> CPU<'a> {
         CPU
         {
             ireg: 0,
@@ -504,13 +544,13 @@ fn execute_cycle<P: PipeLine>(pl: &mut P) -> Option<()> {
 }
 
 fn main() {
-    let exe = load_game("/home/kobein/evo/rust/chip8_opcode/res/INVADERS".to_string());
+    let exe = load_game("/home/cube/dev/rust/chip8_emulator_rust/res/TANK".to_string());
 
-    let mem = Memory::new()
+    let mut mem = Memory::new()
         .load_sprites(SPRITES)
         .load_exe(exe.as_slice())
         .build();
 
-    let mut emulator = CPU::new(&mem as &MemoryBus);
+    let mut emulator = CPU::new(&mut mem as &mut MemoryBus);
     execute_cycle(&mut emulator);
 }
