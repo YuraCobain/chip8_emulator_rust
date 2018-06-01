@@ -1,233 +1,401 @@
+extern crate rand;
+
 mod stack;
 mod memory;
 mod sprites;
+mod utils;
 
 use stack::*;
 use memory::*;
 use sprites::*;
+use utils::*;
 
-use std::io;
 use std::io::prelude::*;
+
 use std::fs::File;
 use std::collections::HashMap;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-enum OpCode{
-    CLS,
-    RET,
-    SYS,
-    JP,
-    CALL,
-    SE_BYTE, 
-    SNE_BYTE,
-    SE_REG,  
-    SNE_REG,  
-    LD_BYTE,
-    ADD_BYTE,
-    LD_REG,  //----
-    OR,
-    AND,
-    XOR,
-    ADD_REG,
-    SUB,
-    SHR,
-    SUBN,
-    SHL,
-    SNE,
-    LD_I_A,
-    JP_REG,
-    RND,
-    DRW,
-    SKP,
-    SKNP,
-    LD_1,
-    LD_2,
-    LD_3,
-    LD_4,
-    ADD_I,
-    LD_5,
-    LD_6,
-    LD_7,
-    LD_8,
-}
-
-fn clr(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    println!("clr");
-    Some(())
-}
-
-fn ret(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    println!("ret");
-    ctx.pc = ctx.stack.pop().unwrap();
-    Some(())
-}
-
-fn sys(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    println!("sys");
-    Some(())
-}
-
-fn jp(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    println!("jp");
-    ctx.pc = to_addr((arg.1, arg.2, arg.3));
-    Some(())
-}
-
-fn call(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    ctx.stack.push(ctx.pc);
-    ctx.pc = to_addr((arg.1, arg.2, arg.3));
-    println!("call: {:?} on addr {:x}", arg, ctx.pc);
-    Some(())
-}
-
-fn se_byte(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    if ctx.regs[arg.1 as usize] == to_u8((arg.2, arg.3)) {
-        ctx.pc += 2;
-    }
-    println!("se_byte");
-    Some(())
-}
-
-fn sne_byte(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    if ctx.regs[arg.1 as usize] != to_u8((arg.2, arg.3)) {
-        ctx.pc += 2;
-    }
-    println!("sne_byte");
-    Some(())
-}
-
-fn se_reg(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    if ctx.regs[arg.1 as usize] == ctx.regs[arg.2 as usize] {
-        ctx.pc += 2;
-    }
-    println!("se_reg");
-    Some(())
-}
-
-fn sne_reg(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    if ctx.regs[arg.1 as usize] != ctx.regs[arg.2 as usize] {
-        ctx.pc += 2;
-    }
-    println!("se_reg");
-    Some(())
-}
-
-fn ld_byte(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    println!("ld_byte");
-    ctx.regs[arg.1 as usize] = to_u8((arg.2, arg.3));
-    Some(())
-}
-
-fn add_byte(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    ctx.regs[arg.1 as usize] += to_u8((arg.2, arg.3));
-    println!("add_byte");
-    Some(())
-}
-
-fn ld_reg(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    ctx.regs[arg.1 as usize] += ctx.regs[arg.2 as usize];
-    println!("ld_reg");
-    Some(())
-}
-
-fn or(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    ctx.regs[arg.1 as usize] |= ctx.regs[arg.2 as usize];
-    println!("or");
-    Some(())
-}
-
-fn and(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    ctx.regs[arg.1 as usize] &= ctx.regs[arg.2 as usize];
-    println!("and");
-    Some(())
-}
-
-fn xor(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    ctx.regs[arg.1 as usize] ^= ctx.regs[arg.2 as usize];
-    println!("xor");
-    Some(())
-}
-
-fn add(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    ctx.regs[0xF] = (ctx.regs[arg.1 as usize] > (0xFF - ctx.regs[arg.2 as usize])) as u8;
-    ctx.regs[arg.1 as usize] += ctx.regs[arg.2 as usize];
-    println!("add");
-    Some(())
-}
-
-fn sub(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    ctx.regs[0xF] = (ctx.regs[arg.1 as usize] > ctx.regs[arg.2 as usize]) as u8;
-    ctx.regs[arg.1 as usize] += ctx.regs[arg.2 as usize];
-    println!("sub");
-    Some(())
-}
-
-fn shr(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    ctx.regs[0xF] = (arg.1 >> 7);
-    println!("shr");
-    Some(())
-}
-
-fn subn(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    println!("subn");
-    Some(())
-}
-
-fn shl(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    println!("shl");
-    Some(())
-}
-
-fn sne(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    println!("she");
-    Some(())
-}
-
-fn ld_i_a(ctx: &mut CPU, arg: ArgOctets) -> Option<()> {
-    println!("ld_i_a");
-    ctx.i_reg = to_addr((arg.1, arg.2, arg.3));
-    Some(())
-}
 type ArgOctets = (u8, u8, u8, u8);
 type OpCodeExe = fn(ctx: &mut CPU, arg: ArgOctets) -> Option<()>;
+type Id = u16;
 
 struct OpCodeHandler {
+    name: &'static str,
     executor: OpCodeExe,
 }
 
 struct ISA {
-    isa_map: HashMap<OpCode, OpCodeHandler>,
+    hmap: HashMap<Id, OpCodeHandler>,
 }
 
 impl ISA {
     fn new() -> ISA {
-        let mut isa = ISA {
-            isa_map: HashMap::new(),
+        let mut inst = ISA {
+            hmap: HashMap::new(),
         };
 
-        isa.isa_map.insert(OpCode::CLS,      OpCodeHandler { executor: clr});
-        isa.isa_map.insert(OpCode::RET,      OpCodeHandler { executor: ret});
-        isa.isa_map.insert(OpCode::SYS,      OpCodeHandler { executor: sys});
-        isa.isa_map.insert(OpCode::JP,       OpCodeHandler { executor: jp});
-        isa.isa_map.insert(OpCode::CALL,     OpCodeHandler { executor: call});
-        isa.isa_map.insert(OpCode::SE_BYTE,  OpCodeHandler { executor: se_byte});
-        isa.isa_map.insert(OpCode::SNE_BYTE, OpCodeHandler { executor: sne_byte});
-        isa.isa_map.insert(OpCode::SE_REG,   OpCodeHandler { executor: se_reg});
-        isa.isa_map.insert(OpCode::SNE_REG,  OpCodeHandler { executor: sne_reg});
-        isa.isa_map.insert(OpCode::LD_BYTE,  OpCodeHandler { executor: ld_byte});
-        isa.isa_map.insert(OpCode::ADD_BYTE, OpCodeHandler { executor: add_byte});
-        isa.isa_map.insert(OpCode::LD_REG,   OpCodeHandler { executor: ld_reg});
-        isa.isa_map.insert(OpCode::LD_I_A,   OpCodeHandler { executor: ld_i_a});
+        inst.register_opcode(
+            0x00E,
+            OpCodeHandler {
+                name: "CLS",
+                executor: |ctx: &mut CPU, arg: ArgOctets| {
+                    Some(())
+                },
+            });
 
-        isa
+         inst.register_opcode(
+             0x00EE,
+             OpCodeHandler {
+                 name: "RET",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.pc = ctx.stack.pop().unwrap() as usize;
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x0000,
+             OpCodeHandler {
+                 name: "INV",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     println!("invalid");
+                     Some(())
+                 },
+             });
+         
+         inst.register_opcode(
+             0x1000,
+             OpCodeHandler {
+                 name: "JP",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.pc = to_addr((arg.1, arg.2, arg.3));
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xB000,
+             OpCodeHandler {
+                 name: "JP_V0",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.pc = to_addr((arg.1, arg.2, arg.3)) + ctx.regs[0] as usize;
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x2000,
+             OpCodeHandler {
+                 name: "CALL",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.stack.push(ctx.pc as u16);
+                     ctx.pc = to_addr((arg.1, arg.2, arg.3));
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x3000,
+             OpCodeHandler {
+                 name: "SE_BYTE",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     if ctx.regs[arg.1 as usize] == to_u8((arg.2, arg.3)) {
+                         ctx.pc += 2;
+                     }
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x4000,
+             OpCodeHandler {
+                 name: "SNE_BYTE",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     if ctx.regs[arg.1 as usize] != to_u8((arg.2, arg.3)) {
+                         ctx.pc += 2;
+                     }
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x5000,
+             OpCodeHandler {
+                 name: "SE_REG",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     if ctx.regs[arg.1 as usize] == ctx.regs[arg.2 as usize] {
+                         ctx.pc += 2;
+                     }
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x6000,
+             OpCodeHandler {
+                 name: "LD_BYTE",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.regs[arg.1 as usize] = to_u8((arg.2, arg.3));
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x7000,
+             OpCodeHandler {
+                 name: "ADD_BYTE",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.regs[arg.1 as usize] += to_u8((arg.2, arg.3));
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x8000,
+             OpCodeHandler {
+                 name: "LD",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.regs[arg.1 as usize] = ctx.regs[arg.2 as usize];
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x8001,
+             OpCodeHandler {
+                 name: "OR",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.regs[arg.1 as usize] |= ctx.regs[arg.2 as usize];
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x8002,
+             OpCodeHandler {
+                 name: "AND",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.regs[arg.1 as usize] &= ctx.regs[arg.2 as usize];
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x8003,
+             OpCodeHandler {
+                 name: "XOR",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.regs[arg.1 as usize] ^= ctx.regs[arg.2 as usize];
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x8004,
+             OpCodeHandler {
+                 name: "ADD",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     let vx = ctx.regs[arg.1 as usize];
+                     let vy = ctx.regs[arg.2 as usize];
+
+                     ctx.regs[VF] = (vx > (std::u8::MAX - vy)) as u8;
+                     ctx.regs[arg.1 as usize] += vy;
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x8005,
+             OpCodeHandler {
+                 name: "SUB",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     let vx = ctx.regs[arg.1 as usize];
+                     let vy = ctx.regs[arg.2 as usize];
+
+                     ctx.regs[VF] = (vx > vy) as u8;
+                     ctx.regs[arg.1 as usize] -= vy;
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x8006,
+             OpCodeHandler {
+                 name: "SHR",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.regs[VF] = ctx.regs[arg.1 as usize] & 0x1;
+                     ctx.regs[arg.1 as usize] >>= 1;
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x8007,
+             OpCodeHandler {
+                 name: "SUBN",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     let vx = ctx.regs[arg.1 as usize];
+                     let vy = ctx.regs[arg.2 as usize];
+
+                     ctx.regs[VF] = (vy > vx) as u8;
+                     ctx.regs[arg.1 as usize] -= vx;
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x800E,
+             OpCodeHandler {
+                 name: "SHL",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.regs[VF] = ctx.regs[arg.1 as usize] >> 7;
+                     ctx.regs[arg.1 as usize] <<= 1;
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0x9000,
+             OpCodeHandler {
+                 name: "SNE_REG",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     if ctx.regs[arg.1 as usize] == ctx.regs[arg.2 as usize] {
+                         ctx.pc += 2;
+                     }
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xA000,
+             OpCodeHandler {
+                 name: "LD_I",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.ireg = to_addr((arg.1, arg.2, arg.3));
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xB000,
+             OpCodeHandler {
+                 name: "LD_V0",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.pc = to_addr((arg.1, arg.2, arg.3)) + ctx.regs[0] as usize;
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xC000,
+             OpCodeHandler {
+                 name: "RND",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     let x: u8 = rand::random();
+                     ctx.regs[arg.1 as usize] = x & to_u8((arg.2, arg.3));
+                     ctx.ireg = to_addr((arg.1, arg.2, arg.3));
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xD000,
+             OpCodeHandler {
+                 name: "DRW",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xE09E,
+             OpCodeHandler {
+                 name: "SKP_VX",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xE0A1,
+             OpCodeHandler {
+                 name: "SKNP_VX",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xF007,
+             OpCodeHandler {
+                 name: "LD_VX_DT",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xF00A,
+             OpCodeHandler {
+                 name: "W_KEY",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     Some(())
+                 },
+             });
+         
+         inst.register_opcode(
+             0xF015,
+             OpCodeHandler {
+                 name: "LD_DT_VX",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xF018,
+             OpCodeHandler {
+                 name: "LD_ST_VX",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xF01E,
+             OpCodeHandler {
+                 name: "ADD_I_VX",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.ireg += ctx.regs[arg.1 as usize] as usize;    
+                     Some(())
+                 },
+             });
+
+         inst.register_opcode(
+             0xF029,
+             OpCodeHandler {
+                 name: "LD_F_VX",
+                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                     ctx.ireg = ctx.mem_bus.get_sprite_addr(arg.1).unwrap();
+                     Some(())
+                 },
+             });
+
+         inst
+    }
+
+    fn register_opcode(&mut self, id: Id, handler: OpCodeHandler) -> &mut Self {
+        self.hmap.insert(id, handler);
+        self
     }
 }
 
 const NUM_GP_REGS: usize = 16;
-const PC_START_ADDR: u16 = 0x200;
+const PC_START_ADDR: usize = 0x200;
+const VF: usize = 0xF;
 struct CPU<'a> {
-    i_reg: u16,
-    pc: u16,
+    ireg: usize,
+    pc: usize,
     regs: [u8; NUM_GP_REGS],
     delay_reg: u8,
     timer_reg: u8,
@@ -241,7 +409,7 @@ impl<'a> CPU<'a>
     fn new(mem_bus: &'a MemoryBus) -> CPU<'a> {
         CPU
         {
-            i_reg: 0,
+            ireg: 0,
             pc: PC_START_ADDR,
             regs: [0; NUM_GP_REGS],
             delay_reg: 0,
@@ -251,72 +419,52 @@ impl<'a> CPU<'a>
             mem_bus: mem_bus,
         }
     }
-
-
-}
-
-fn get_octet(x: u16, num: u16) -> u8 {
-    ((x & (0xF << num)) >> num) as u8
-}
-
-fn to_octets(x: u16) -> (u8, u8, u8, u8) {
-    let oct0 = get_octet(x, 0);
-    let oct1 = get_octet(x, 4);
-    let oct2 = get_octet(x, 8);
-    let oct3 = get_octet(x, 12);
-
-    (oct3, oct2, oct1, oct0)
-}
-
-fn to_addr((oct0, oct1, oct2) : (u8, u8, u8)) -> u16 {
-    (oct0 as u16) << 8 | (oct1 as u16) << 4 | (oct2 as u16)
-}
-
-fn to_u8((oct0, oct1): (u8, u8)) -> u8 {
-    (oct0 << 4) | oct1
 }
 
 trait PipeLine {
     fn fetch(&mut self) -> Option<u16>;
-    fn decode(&self, instruction: u16) -> Option<(OpCode, ArgOctets)>;
-    fn execute(&mut self, icode: OpCode, arg: ArgOctets) -> Option<()>;
+    fn decode(&self, instruction: u16) -> Option<(Id, ArgOctets)>;
+    fn execute(&mut self, id: Id, arg: ArgOctets) -> Option<()>;
 }
 
 impl<'a> PipeLine for CPU<'a>
 {
     fn fetch(&mut self) -> Option<u16> {        
-        let curr_pc = self.pc;
+        let cur_inst = self.mem_bus.get_instruction(self.pc).unwrap() as u16;
         self.pc += 2;
-        Some(self.mem_bus.get_instruction(curr_pc).unwrap())
+        println!("fetched instruction: {:04X}", cur_inst);
+        Some(cur_inst as u16)
     }
 
-    fn decode(&self, instruction: u16) -> Option<(OpCode, ArgOctets)> {
-        let octets = to_octets(instruction);
+    fn decode(&self, instruction: u16) -> Option<(Id, ArgOctets)> {
+        let octs = to_octets(instruction);
 
-        println!("fetched instruction {:04x} -> {:?}", instruction, octets);
-        let icode = match octets {
-            (0x0, 0x0, 0xE, 0x0) => OpCode::CLS,
-            (0x0, 0x0, 0xE, 0xE) => OpCode::RET,
-            (0x0, _, _, _) =>  OpCode::SYS,
-            (0x1, _, _, _) =>  OpCode::JP,
-            (0x2, _, _, _) =>  OpCode::CALL,
-            (0x3, _, _, _) =>  OpCode::SE_BYTE,
-            (0x4, _, _, _) =>  OpCode::SNE_BYTE,
-            (0x5, _, _, _) =>  OpCode::SE_REG,
-            (0x6, _, _, _) =>  OpCode::LD_BYTE,
-            (0x7, _, _, _) =>  OpCode::ADD_BYTE,
-            (0x8, _, _, 0x0) =>  OpCode::LD_REG,
-            (0xA, _, _, _) =>  OpCode::LD_I_A,
-            (_, _, _, _) => OpCode::CLS,
+        let id = match octs {
+            (0x0, _, _, _) => to_id((0x0, 0x0, octs.2, octs.3)),
+
+            (0x1, _, _, _) | (0x2, _, _, _) | (0x3, _, _, _) |
+            (0x4, _, _, _) | (0x5, _, _, _) | (0x6, _, _, _) |
+            (0x7, _, _, _) | (0xA, _, _, _) | (0xB, _, _, _) |
+            (0xC, _, _, _) | (0xD, _, _, _) | (0x9, _, _, _) => to_id((octs.0, 0x0, 0x0, 0x0)),
+
+            (0x8, _, _, _) => to_id((octs.0, 0x0, 0x0, octs.3)),
+            (0xE, _, _, _) | (0xF, _, _, _) => to_id((octs.0, 0x0, octs.2, octs.3)),
+
+            (_, _, _, _) => 0,
         };
 
-        Some((icode, octets)) 
+        println!("decoded instruction: {:04X} => opcode {:04x}, arg {:?}",
+                 instruction, id, octs);
+        Some((id, octs)) 
     }
 
-    fn execute(&mut self, icode: OpCode, arg: ArgOctets) -> Option<()>{
-        (self.isa.isa_map[&icode].executor)(self, arg)
+    fn execute(&mut self, id: Id, arg: ArgOctets) -> Option<()>{
+        {
+            let h = self.isa.hmap.get(&id).unwrap();
+            println!("execute opcode: {:04X} => {} with arg {:?}", id, h.name, arg);
+        }
+        (self.isa.hmap[&id].executor)(self, arg)
     }
-
 }
 
 fn load_game(path: String) -> Vec<u8> {
@@ -345,11 +493,11 @@ fn load_game(path: String) -> Vec<u8> {
     exe
 }
 
-fn execute_cycle<T: PipeLine>(emu: &mut T) -> Option<()> {
-    for i in 0..10 {
-        let instruction = emu.fetch().unwrap();
-        let (icode, arg) : (OpCode, ArgOctets) = emu.decode(instruction).unwrap();
-        let _ = emu.execute(icode, arg).unwrap();
+fn execute_cycle<P: PipeLine>(pl: &mut P) -> Option<()> {
+    for _ in 0..32 {
+        let instruction = pl.fetch().unwrap();
+        let (id, arg) = pl.decode(instruction).unwrap();
+        let _ = pl.execute(id, arg).unwrap();
     }
 
     Some(())
@@ -362,6 +510,7 @@ fn main() {
         .load_sprites(SPRITES)
         .load_exe(exe.as_slice())
         .build();
+
     let mut emulator = CPU::new(&mem as &MemoryBus);
     execute_cycle(&mut emulator);
 }

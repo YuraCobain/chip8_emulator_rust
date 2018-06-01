@@ -31,6 +31,6 @@ impl Stack {
         let val = self.mem[self.top as usize];
         self.top -= 1;
 
-        Some(val)
+        Some(val as u16)
     }
 }
