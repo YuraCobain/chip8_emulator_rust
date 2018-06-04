@@ -1,12 +1,10 @@
 extern crate rand;
 
-mod stack;
 mod memory;
 mod sprites;
 mod utils;
 mod media_be;
 
-use stack::*;
 use memory::*;
 use sprites::*;
 use utils::*;
@@ -14,6 +12,7 @@ use media_be::*;
 
 use std::io::prelude::*;
 
+use std::env;
 use std::fs::File;
 use std::collections::HashMap;
 
@@ -43,22 +42,25 @@ impl<'a> ISA<'a> {
 }
 
 const NUM_GP_REGS: usize = 16;
-const PC_START_ADDR: usize = 0x200;
+const PC_START_ADDR: u16 = 0x200;
 const VF: usize = 0xF;
 struct CPU<'a> {
-    ireg: usize,
-    pc: usize,
+    ireg: u16,
+    pc: u16,
     regs: [u8; NUM_GP_REGS],
     delay_reg: u8,
     sound_reg: u8,
-    stack: Stack,
     isa: ISA<'a>,
-    mem_bus: &'a mut (MemoryBus + 'a), 
+    cpu_mem: &'a mut (CpuMemory + 'a), 
+    gfx_mem: &'a mut (VideoMemory + 'a), 
+    media_if: &'a mut (MediaIf + 'a),
 }
 
 impl<'a> CPU<'a>
 {
-    fn new(mem_bus: &'a mut MemoryBus) -> CPU<'a> {
+    fn new(cpu_mem: &'a mut CpuMemory,
+           gfx_mem: &'a mut VideoMemory,
+           media_if: &'a mut MediaIf) -> CPU<'a> {
         let mut cpu = CPU
         {
             ireg: 0,
@@ -66,16 +68,28 @@ impl<'a> CPU<'a>
             regs: [0; NUM_GP_REGS],
             delay_reg: 0,
             sound_reg: 0,
-            stack: Stack::new(),
             isa: ISA::new(),
-            mem_bus: mem_bus,
+            cpu_mem: cpu_mem,
+            gfx_mem: gfx_mem,
+            media_if: media_if,
         };
 
+        cpu.isa.register_opcode(
+            0x0000,
+            OpCodeHandler {
+                name: "INV",
+                executor: |ctx: &mut CPU, arg: ArgOctets| {
+                    println!("invalid");
+                    Some(())
+                },
+            });
+
         cpu.isa.register_opcode( 
-            0x00E,
+            0x00E0,
             OpCodeHandler { 
                 name: "CLS",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                    ctx.media_if.clear_display();
                     Some(())
                 },
             });
@@ -85,17 +99,7 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "RET",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    ctx.pc = ctx.stack.pop().unwrap() as usize;
-                    Some(())
-                },
-            });
-
-        cpu.isa.register_opcode(
-            0x0000,
-            OpCodeHandler {
-                name: "INV",
-                executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    println!("invalid");
+                    ctx.pc = ctx.cpu_mem.pop().unwrap();
                     Some(())
                 },
             });
@@ -115,7 +119,7 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "JP_V0",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    ctx.pc = to_addr((arg.1, arg.2, arg.3)) + ctx.regs[0] as usize;
+                    ctx.pc = to_addr((arg.1, arg.2, arg.3)) + ctx.regs[0] as u16;
                     Some(())
                 },
             });
@@ -125,7 +129,7 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "CALL",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    ctx.stack.push(ctx.pc as u16);
+                    ctx.cpu_mem.push(ctx.pc as u16);
                     ctx.pc = to_addr((arg.1, arg.2, arg.3));
                     Some(())
                 },
@@ -318,7 +322,7 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "LD_V0",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    ctx.pc = to_addr((arg.1, arg.2, arg.3)) + ctx.regs[0] as usize;
+                    ctx.pc = to_addr((arg.1, arg.2, arg.3)) + ctx.regs[0] as u16;
                     Some(())
                 },
             });
@@ -330,7 +334,6 @@ impl<'a> CPU<'a>
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
                     let x: u8 = rand::random();
                     ctx.regs[arg.1 as usize] = x & to_u8((arg.2, arg.3));
-                    ctx.ireg = to_addr((arg.1, arg.2, arg.3));
                     Some(())
                 },
             });
@@ -340,6 +343,17 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "DRW",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                    let mut sprites: Vec<u8> = Vec::new();
+                    for i in 0..=arg.3 {
+                        let sprite = ctx.cpu_mem.get_sprite(i).unwrap();
+                        println!("sprite: {} => {:?}",i, sprite);
+                        sprites.extend_from_slice(sprite);
+                    }
+
+                    ctx.gfx_mem.apply_sprite(arg.1, arg.2, sprites.as_slice());
+                    ctx.media_if.clear_display();
+                    ctx.media_if.draw_display(ctx.gfx_mem.get_video_buf().unwrap());
+                    ctx.media_if.present_display();
                     Some(())
                 },
             });
@@ -406,7 +420,7 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "ADD_I_VX",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    ctx.ireg += ctx.regs[arg.1 as usize] as usize;    
+                    ctx.ireg += ctx.regs[arg.1 as usize] as u16;    
                     Some(())
                 },
             });
@@ -416,7 +430,7 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "LD_F_VX",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    ctx.ireg = ctx.mem_bus.get_sprite_addr(arg.1).unwrap();
+                    ctx.ireg = ctx.cpu_mem.get_sprite_addr(arg.1).unwrap();
                     Some(())
                 },
             });
@@ -430,11 +444,11 @@ impl<'a> CPU<'a>
 
                     for i in 3..0 {
                         let d = x % 10;
-                        ctx.mem_bus.set_u8(ctx.ireg + i, x % 10);
+                        ctx.cpu_mem.set_u8(ctx.ireg + i, x % 10);
                         x /= 10;
                         println!("{}", d);
                     }
-                    ctx.ireg = ctx.mem_bus.get_sprite_addr(arg.1).unwrap();
+                    ctx.ireg = ctx.cpu_mem.get_sprite_addr(arg.1).unwrap();
                     Some(())
                 },
             });
@@ -444,8 +458,8 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "LD_I_VX",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    for i in 0..arg.1 as usize {
-                        ctx.mem_bus.set_u8(ctx.ireg + i, ctx.regs[i as usize]);
+                    for i in 0..(arg.1 + 1) as u16 {
+                        ctx.cpu_mem.set_u8(ctx.ireg + i, ctx.regs[i as usize]);
                     }
                     Some(())
                 },
@@ -456,8 +470,8 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "LD_VX_I",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    for i in 0..arg.1 as usize {
-                        ctx.regs[i as usize] = ctx.mem_bus.get_u8(ctx.ireg + i).unwrap();
+                    for i in 0..(arg.1 + 1) as u16 {
+                        ctx.regs[i as usize] = ctx.cpu_mem.get_u8(ctx.ireg + i).unwrap();
                     }
                     Some(())
                 },
@@ -476,7 +490,7 @@ trait PipeLine {
 impl<'a> PipeLine for CPU<'a>
 {
     fn fetch(&mut self) -> Option<u16> {        
-        let cur_inst = self.mem_bus.get_instruction(self.pc).unwrap() as u16;
+        let cur_inst = self.cpu_mem.get_instruction(self.pc).unwrap() as u16;
         self.pc += 2;
 
         println!("fetched instruction: {:04X}", cur_inst);
@@ -547,27 +561,33 @@ fn load_game(path: String) -> Vec<u8> {
     exe
 }
 
-fn execute_cycle<P: PipeLine>(pl: &mut P) -> Option<()> {
-    let mut mbe = media_be::Sdl2Be::new();
-
-    for _ in 0..128 {
+use std::time::Duration;
+fn execute_cycle<P: PipeLine>(pl: &mut P, c: u32) -> Option<()> {
+    for _ in 0..c {
         let instruction = pl.fetch().unwrap();
         let (id, arg) = pl.decode(instruction).unwrap();
         let _ = pl.execute(id, arg).unwrap();
-        mbe.run_one_tick();
+        ::std::thread::sleep(Duration::new(0, 1000000));
     }
 
     Some(())
 }
 
 fn main() {
-    let exe = load_game("/home/cube/dev/rust/chip8_emulator_rust/res/TANK".to_string());
+    let path = env::args().nth(1).unwrap();
+    let c = env::args().nth(2).unwrap().parse::<u32>().unwrap();
+    let exe = load_game(path);
 
     let mut mem = Memory::new()
         .load_sprites(SPRITES)
         .load_exe(exe.as_slice())
         .build();
 
-    let mut emulator = CPU::new(&mut mem as &mut MemoryBus);
-    execute_cycle(&mut emulator);
+    let mut display = Display::new();
+    let mut media_if = Sdl2Be::new();
+
+    let mut emulator = CPU::new(&mut mem as &mut CpuMemory,
+                                &mut display as &mut VideoMemory,
+                                &mut media_if as &mut MediaIf);
+    execute_cycle(&mut emulator, c);
 }

@@ -11,8 +11,8 @@ pub fn to_octets(x: u16) -> (u8, u8, u8, u8) {
     (oct3, oct2, oct1, oct0)
 }
 
-pub fn to_addr((oct0, oct1, oct2) : (u8, u8, u8)) -> usize {
-    (oct0 as usize) << 8 | (oct1 as usize) << 4 | (oct2 as usize)
+pub fn to_addr((oct0, oct1, oct2) : (u8, u8, u8)) -> u16 {
+    (oct0 as u16) << 8 | (oct1 as u16) << 4 | (oct2 as u16)
 }
 
 pub fn to_id((oct0, oct1, oct2, oct3) : (u8, u8, u8, u8)) -> u16 {
