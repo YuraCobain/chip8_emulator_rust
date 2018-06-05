@@ -109,16 +109,21 @@ impl CpuMemory for Memory {
 }
 
 pub trait VideoMemory {
-    fn apply_sprite(&mut self, x: u8, y: u8, sprites: &[u8]) -> Option<u8>;
-    fn get_video_buf(&mut self) -> Option<&[u64]>;
+    fn apply_sprites(&mut self, x: u8, y: u8, sprites: &[u8]) -> Option<u8>;
+    fn get_video_buf(&mut self) -> Option<&[[u8; DISPLAY_TOTAL_WIDTH]]>;
 }
 
-const DISPLAY_WIDTH: usize = 64;
-const DISPLAY_HEIGHT: usize = 32;
+const DISPLAY_VISIBLE_WIDTH: usize = 64;
+const DISPLAY_VISIBLE_HEIGHT: usize = 32;
+
+// total video memoty width in words including wrapping area
+const DISPLAY_TOTAL_WIDTH: usize = DISPLAY_VISIBLE_WIDTH / 8 + 1; 
+// total video memoty height in bits including wrapping area
+const DISPLAY_TOTAL_HEIGHT: usize = DISPLAY_VISIBLE_HEIGHT + 4;
 
 #[derive(Copy)]
 pub struct Display {
-    memory: [u64; DISPLAY_HEIGHT],
+    memory: [[u8; DISPLAY_TOTAL_WIDTH]; DISPLAY_TOTAL_HEIGHT],
 }
 
 impl Clone for Display {
@@ -128,40 +133,51 @@ impl Clone for Display {
 impl Display {
     pub fn new() -> Self {
         Display {
-            memory: [0; 32],
+            memory: [[0; DISPLAY_TOTAL_WIDTH]; DISPLAY_TOTAL_HEIGHT],
         }
     }
 }
 
 impl VideoMemory for Display {
-    fn apply_sprite(&mut self, x: u8, y: u8, sprites: &[u8]) -> Option<u8> {
+    fn apply_sprites(&mut self, x: u8, y: u8, sprites: &[u8]) -> Option<u8> {
         let copy = self.clone();
        
-        // calcualte correct offset in bytes and bits
-        let byte_offset = 8 - x / 8 - 1;
+        // calculate correct offset in bytes and bits
+        let byte_offset = x / 8;
         let bit_offset = x % 8;
 
-
-        let dbg = |row: u64| {
-            println!("{:064b}", row);
+        let gdb = |d: &[[u8; 9]]| {
+            for r in d {
+                for c in r {
+                    print!("{:08b} ", c);
+                }
+                println!("");
+            }
         };
 
-        println!("x: {}, y: {}, by_o: {}, bi_o: {}", x, y, byte_offset, bit_offset);
-        for i in y..y+6 {
-            let curr_r = i as usize;
-            let mut row: u64 = self.memory[curr_r];
-            for j in 0..sprites.len() {
-                let sprite: u64 = (sprites[j] as u64) << ((byte_offset << 3) - bit_offset);
-                println!("sprite_8 {:08b}, sprite_64 {:064b}", sprites[j], sprite);
-                row ^= sprite;
-            }
-            self.memory[curr_r] = row;
+        println!("x: {}, y: {}, by_o: {}, bi_o: {}, s_len {}",                 
+                 x, y, byte_offset, bit_offset, sprites.len());
+        for s in 0..sprites.len() {
+            let curr_r = s + y as usize;
+            let mut row_bh = self.memory[curr_r][byte_offset as usize] as u16; 
+            let mut row_bl = self.memory[curr_r][(byte_offset + 1) as usize] as u16; 
+
+            let mut row = (row_bh << 8) | row_bl;
+            let sprite_row_apply = (sprites[s] as u16) << (8 - bit_offset);
+
+            row ^= sprite_row_apply;
+            self.memory[curr_r][byte_offset as usize] = (row >> 8) as u8;
+            self.memory[curr_r][(byte_offset + 1) as usize] = row as u8;
+                
+            println!("sprite_8 {:08b}, sprite_16 {:016b}, res: {:016b}",
+                     sprites[s], sprite_row_apply, row);
         }
+        gdb(&self.memory[..]);
 
         Some(0)
     }
     
-    fn get_video_buf(&mut self) -> Option<&[u64]> {
+    fn get_video_buf(&mut self) -> Option<&[[u8; DISPLAY_TOTAL_WIDTH]]> {
         Some(&self.memory[..])
     }
 }

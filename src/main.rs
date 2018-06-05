@@ -15,6 +15,7 @@ use std::io::prelude::*;
 use std::env;
 use std::fs::File;
 use std::collections::HashMap;
+use std::num::Wrapping;
 
 type ArgOctets = (u8, u8, u8, u8);
 type Id = u16;
@@ -110,16 +111,6 @@ impl<'a> CPU<'a>
                 name: "JP",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
                     ctx.pc = to_addr((arg.1, arg.2, arg.3));
-                    Some(())
-                },
-            });
-
-        cpu.isa.register_opcode(
-            0xB000,
-            OpCodeHandler {
-                name: "JP_V0",
-                executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    ctx.pc = to_addr((arg.1, arg.2, arg.3)) + ctx.regs[0] as u16;
                     Some(())
                 },
             });
@@ -236,11 +227,11 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "ADD",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    let vx = ctx.regs[arg.1 as usize];
-                    let vy = ctx.regs[arg.2 as usize];
+                    let vx = ctx.regs[arg.1 as usize] as i8;
+                    let vy = ctx.regs[arg.2 as usize] as i8;
 
-                    ctx.regs[VF] = (vx > (std::u8::MAX - vy)) as u8;
-                    ctx.regs[arg.1 as usize] += vy;
+                    ctx.regs[VF] = (vx > (std::u8::MAX as i8 - vy)) as u8;
+                    ctx.regs[arg.1 as usize] = (vx + vy) as u8;
                     Some(())
                 },
             });
@@ -250,11 +241,12 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "SUB",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    let vx = ctx.regs[arg.1 as usize];
-                    let vy = ctx.regs[arg.2 as usize];
+                    let vx:Wrapping<u8> = Wrapping(ctx.regs[arg.1 as usize]);
+                    let vy:Wrapping<u8> = Wrapping(ctx.regs[arg.2 as usize]);
 
                     ctx.regs[VF] = (vx > vy) as u8;
-                    ctx.regs[arg.1 as usize] -= vy;
+                    println!("VF {}, x {}, y {}", ctx.regs[VF], vx, vy);
+                    ctx.regs[arg.1 as usize] = (vx - vy).0;
                     Some(())
                 },
             });
@@ -279,7 +271,7 @@ impl<'a> CPU<'a>
                     let vy = ctx.regs[arg.2 as usize];
 
                     ctx.regs[VF] = (vy > vx) as u8;
-                    ctx.regs[arg.1 as usize] -= vx;
+                    ctx.regs[arg.1 as usize] = vy - vx;
                     Some(())
                 },
             });
@@ -344,13 +336,13 @@ impl<'a> CPU<'a>
                 name: "DRW",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
                     let mut sprites: Vec<u8> = Vec::new();
-                    for i in 0..=arg.3 {
-                        let sprite = ctx.cpu_mem.get_sprite(i).unwrap();
+                    for i in 0..arg.3 {
+                        let sprite = ctx.cpu_mem.get_u8(ctx.ireg + i as u16).unwrap();
                         println!("sprite: {} => {:?}",i, sprite);
-                        sprites.extend_from_slice(sprite);
+                        sprites.push(sprite);
                     }
 
-                    ctx.gfx_mem.apply_sprite(arg.1, arg.2, sprites.as_slice());
+                    ctx.gfx_mem.apply_sprites(arg.1, arg.2, sprites.as_slice());
                     ctx.media_if.clear_display();
                     ctx.media_if.draw_display(ctx.gfx_mem.get_video_buf().unwrap());
                     ctx.media_if.present_display();
@@ -363,6 +355,9 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "SKP_VX",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                    if ctx.media_if.is_key_pressed(ctx.regs[arg.1 as usize]) {
+                        ctx.pc += 2;
+                    }
                     Some(())
                 },
             });
@@ -372,6 +367,9 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "SKNP_VX",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                    if !ctx.media_if.is_key_pressed(ctx.regs[arg.1 as usize]) {
+                        ctx.pc += 2;
+                    }
                     Some(())
                 },
             });
@@ -391,6 +389,7 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "W_KEY",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                    ctx.regs[arg.1 as usize] = ctx.media_if.wait_key_press().unwrap();
                     Some(())
                 },
             });
@@ -442,13 +441,13 @@ impl<'a> CPU<'a>
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
                     let mut x = ctx.regs[arg.1 as usize];
 
+                    println!("bcd_num {}", x);
                     for i in 3..0 {
                         let d = x % 10;
                         ctx.cpu_mem.set_u8(ctx.ireg + i, x % 10);
                         x /= 10;
-                        println!("{}", d);
+                        println!("bcd digits {}", d);
                     }
-                    ctx.ireg = ctx.cpu_mem.get_sprite_addr(arg.1).unwrap();
                     Some(())
                 },
             });
@@ -458,7 +457,7 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "LD_I_VX",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    for i in 0..(arg.1 + 1) as u16 {
+                    for i in 0..=arg.1 as u16 {
                         ctx.cpu_mem.set_u8(ctx.ireg + i, ctx.regs[i as usize]);
                     }
                     Some(())
@@ -470,7 +469,7 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "LD_VX_I",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    for i in 0..(arg.1 + 1) as u16 {
+                    for i in 0..=arg.1 as u16 {
                         ctx.regs[i as usize] = ctx.cpu_mem.get_u8(ctx.ireg + i).unwrap();
                     }
                     Some(())
@@ -531,7 +530,17 @@ impl<'a> PipeLine for CPU<'a>
             let h = self.isa.hmap.get(&id).unwrap();
             println!("execute opcode: {:04X} => {} with arg {:?}", id, h.name, arg);
         }
-        (self.isa.hmap[&id].executor)(self, arg)
+        (self.isa.hmap[&id].executor)(self, arg);
+
+        if self.delay_reg != 0 {
+            self.delay_reg -= 1;
+        }
+
+        if self.sound_reg != 0 {
+            self.sound_reg -= 1;
+        }
+
+        Some(())
     }
 }
 
