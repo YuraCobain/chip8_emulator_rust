@@ -8,8 +8,9 @@ const STACK_SIZE: usize = 32;
 const STACK_START_ADDR: usize = MEM_SIZE - STACK_SIZE - 1;
 
 pub trait CpuMemory {
-    fn get_sprite(&self, s_n: u8) -> Option<&[u8]>;
-    fn get_sprite_addr(&self, s_n: u8) -> Option<u16>;
+    fn get_font_sprite(&self, s_n: u8) -> Option<&[u8]>;
+    fn get_font_sprite_addr(&self, s_n: u8) -> Option<u16>;
+    fn get_sprites(&self, addr: u16, n: u8) -> Option<&[u8]>;
     
     fn get_instruction(&self, addr: u16) -> Option<u16>;
     fn set_u8(&mut self, addr: u16, val: u8) -> Option<()>;
@@ -62,13 +63,19 @@ impl CpuMemory for Memory {
         Some(high_byte << 8 | low_byte)
     }
 
-    fn get_sprite_addr(&self, s_num: u8) -> Option<u16> {
+    fn get_font_sprite_addr(&self, s_num: u8) -> Option<u16> {
         Some((ROM_START_ADDR + SPRITE_SIZE * (s_num as usize)) as u16)
     }
 
-    fn get_sprite(&self, s_num: u8) -> Option<&[u8]> {
+    fn get_font_sprite(&self, s_num: u8) -> Option<&[u8]> {
         let start = ROM_START_ADDR + SPRITE_SIZE * (s_num as usize);
         let end = start + SPRITE_SIZE;
+        Some(&self.memory[start..end])
+    }
+
+    fn get_sprites(&self, addr: u16, n: u8) -> Option<&[u8]> {
+        let start = addr as usize;
+        let end = start + n as usize;
         Some(&self.memory[start..end])
     }
 
@@ -140,7 +147,7 @@ impl Display {
 
 impl VideoMemory for Display {
     fn apply_sprites(&mut self, x: u8, y: u8, sprites: &[u8]) -> Option<u8> {
-        let copy = self.clone();
+        let mut collision = 0u8;
        
         // calculate correct offset in bytes and bits
         let byte_offset = x / 8;
@@ -163,18 +170,23 @@ impl VideoMemory for Display {
             let mut row_bl = self.memory[curr_r][(byte_offset + 1) as usize] as u16; 
 
             let mut row = (row_bh << 8) | row_bl;
+            let row_copy = row;
             let sprite_row_apply = (sprites[s] as u16) << (8 - bit_offset);
 
             row ^= sprite_row_apply;
+
             self.memory[curr_r][byte_offset as usize] = (row >> 8) as u8;
             self.memory[curr_r][(byte_offset + 1) as usize] = row as u8;
                 
+            if row & row_copy != row_copy {
+                collision = 1;
+            } 
             println!("sprite_8 {:08b}, sprite_16 {:016b}, res: {:016b}",
                      sprites[s], sprite_row_apply, row);
         }
         gdb(&self.memory[..]);
 
-        Some(0)
+        Some(collision)
     }
     
     fn get_video_buf(&mut self) -> Option<&[[u8; DISPLAY_TOTAL_WIDTH]]> {

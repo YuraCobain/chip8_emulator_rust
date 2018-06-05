@@ -177,7 +177,10 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "ADD_BYTE",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    ctx.regs[arg.1 as usize] += to_u8((arg.2, arg.3));
+                    let vx = ctx.regs[arg.1 as usize] as u16;
+                    let vy = to_u8((arg.2, arg.3)) as u16;
+                    
+                    ctx.regs[arg.1 as usize] = (vx + vy) as u8;
                     Some(())
                 },
             });
@@ -335,14 +338,11 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "DRW",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    let mut sprites: Vec<u8> = Vec::new();
-                    for i in 0..arg.3 {
-                        let sprite = ctx.cpu_mem.get_u8(ctx.ireg + i as u16).unwrap();
-                        println!("sprite: {} => {:?}",i, sprite);
-                        sprites.push(sprite);
-                    }
+                    let x = ctx.regs[arg.1 as usize];
+                    let y = ctx.regs[arg.2 as usize];
+                    let sprites = ctx.cpu_mem.get_sprites(ctx.ireg, arg.3).unwrap();
 
-                    ctx.gfx_mem.apply_sprites(arg.1, arg.2, sprites.as_slice());
+                    ctx.regs[VF] = ctx.gfx_mem.apply_sprites(x, y, sprites).unwrap();
                     ctx.media_if.clear_display();
                     ctx.media_if.draw_display(ctx.gfx_mem.get_video_buf().unwrap());
                     ctx.media_if.present_display();
@@ -429,7 +429,7 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "LD_F_VX",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    ctx.ireg = ctx.cpu_mem.get_sprite_addr(arg.1).unwrap();
+                    ctx.ireg = ctx.cpu_mem.get_font_sprite_addr(arg.1).unwrap();
                     Some(())
                 },
             });
