@@ -90,7 +90,9 @@ impl<'a> CPU<'a>
             OpCodeHandler { 
                 name: "CLS",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
+                    ctx.gfx_mem.clear();
                     ctx.media_if.clear_display();
+                    ctx.media_if.present_display();
                     Some(())
                 },
             });
@@ -429,7 +431,7 @@ impl<'a> CPU<'a>
             OpCodeHandler {
                 name: "LD_F_VX",
                 executor: |ctx: &mut CPU, arg: ArgOctets| {
-                    ctx.ireg = ctx.cpu_mem.get_font_sprite_addr(arg.1).unwrap();
+                    ctx.ireg = ctx.cpu_mem.get_font_sprite_addr(ctx.regs[arg.1 as usize]).unwrap();
                     Some(())
                 },
             });
@@ -576,7 +578,7 @@ fn execute_cycle<P: PipeLine>(pl: &mut P, c: u32) -> Option<()> {
         let instruction = pl.fetch().unwrap();
         let (id, arg) = pl.decode(instruction).unwrap();
         let _ = pl.execute(id, arg).unwrap();
-        ::std::thread::sleep(Duration::new(0, 1000000));
+        ::std::thread::sleep(Duration::new(0, 10000000));
     }
 
     Some(())

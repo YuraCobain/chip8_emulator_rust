@@ -8,7 +8,7 @@ use media_be::sdl2::keyboard::Keycode;
 use std::time::Duration;
 
 pub trait MediaIf {
-    fn draw_display(&mut self, buf: &[[u8; 9]]) -> Option<u8>;
+    fn draw_display(&mut self, buf: &[[u8; 10]]) -> Option<u8>;
     fn clear_display(&mut self) -> Option<u8>;
     fn present_display(&mut self) -> Option<u8>;
 
@@ -132,11 +132,11 @@ impl Sdl2Be {
 }
 
 fn test_nth_bit(x: u8, nth: u8) -> bool {
-    (x & (1 << nth)) != 0
+    (x & (1 << (7 - nth))) != 0
 }
 
 impl MediaIf for Sdl2Be {
-    fn draw_display(&mut self, buf: &[[u8; 9]]) -> Option<u8> {
+    fn draw_display(&mut self, buf: &[[u8; 10]]) -> Option<u8> {
         let mut sdl_ps: Vec<Point> = Vec::with_capacity(32*64);
 
         for r in 0..buf.len() {
@@ -171,7 +171,12 @@ impl MediaIf for Sdl2Be {
     }
     
     fn wait_key_press(&mut self) -> Option<u8> {
-        Sdl2Be::evnt2code(self.ev.wait_event()) 
+        loop {
+            match Sdl2Be::evnt2code(self.ev.wait_event()) { 
+                Some(e) => return Some(e),
+                None => continue,
+            }
+        }
     }
     
     fn is_key_pressed(&mut self, key: u8) -> bool {

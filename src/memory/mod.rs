@@ -118,13 +118,14 @@ impl CpuMemory for Memory {
 pub trait VideoMemory {
     fn apply_sprites(&mut self, x: u8, y: u8, sprites: &[u8]) -> Option<u8>;
     fn get_video_buf(&mut self) -> Option<&[[u8; DISPLAY_TOTAL_WIDTH]]>;
+    fn clear(&mut self);
 }
 
 const DISPLAY_VISIBLE_WIDTH: usize = 64;
 const DISPLAY_VISIBLE_HEIGHT: usize = 32;
 
 // total video memoty width in words including wrapping area
-const DISPLAY_TOTAL_WIDTH: usize = DISPLAY_VISIBLE_WIDTH / 8 + 1; 
+const DISPLAY_TOTAL_WIDTH: usize = DISPLAY_VISIBLE_WIDTH / 8 + 2; 
 // total video memoty height in bits including wrapping area
 const DISPLAY_TOTAL_HEIGHT: usize = DISPLAY_VISIBLE_HEIGHT + 4;
 
@@ -150,10 +151,10 @@ impl VideoMemory for Display {
         let mut collision = 0u8;
        
         // calculate correct offset in bytes and bits
-        let byte_offset = x / 8;
-        let bit_offset = x % 8;
+        let byte_offset = (x as usize)  / 8;
+        let bit_offset = (x as usize) % 8;
 
-        let gdb = |d: &[[u8; 9]]| {
+        let gdb = |d: &[[u8; DISPLAY_TOTAL_WIDTH]]| {
             for r in d {
                 for c in r {
                     print!("{:08b} ", c);
@@ -166,21 +167,20 @@ impl VideoMemory for Display {
                  x, y, byte_offset, bit_offset, sprites.len());
         for s in 0..sprites.len() {
             let curr_r = s + y as usize;
-            let mut row_bh = self.memory[curr_r][byte_offset as usize] as u16; 
-            let mut row_bl = self.memory[curr_r][(byte_offset + 1) as usize] as u16; 
+            let mut row_bh = self.memory[curr_r][byte_offset] as u16; 
+            let mut row_bl = self.memory[curr_r][(byte_offset + 1)] as u16; 
 
             let mut row = (row_bh << 8) | row_bl;
-            let row_copy = row;
+            let row_prev = row;
+
             let sprite_row_apply = (sprites[s] as u16) << (8 - bit_offset);
 
             row ^= sprite_row_apply;
 
-            self.memory[curr_r][byte_offset as usize] = (row >> 8) as u8;
-            self.memory[curr_r][(byte_offset + 1) as usize] = row as u8;
+            self.memory[curr_r][byte_offset] = (row >> 8) as u8;
+            self.memory[curr_r][(byte_offset + 1)] = row as u8;
                 
-            if row & row_copy != row_copy {
-                collision = 1;
-            } 
+            collision = (row & row_prev != row_prev) as u8;;
             println!("sprite_8 {:08b}, sprite_16 {:016b}, res: {:016b}",
                      sprites[s], sprite_row_apply, row);
         }
@@ -191,6 +191,10 @@ impl VideoMemory for Display {
     
     fn get_video_buf(&mut self) -> Option<&[[u8; DISPLAY_TOTAL_WIDTH]]> {
         Some(&self.memory[..])
+    }
+    
+    fn clear(&mut self) {
+        self.memory = [[0; 10]; 36];
     }
 }
 
