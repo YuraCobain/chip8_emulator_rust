@@ -145,7 +145,17 @@ impl Display {
 impl VideoMemory for Display {
     fn apply_sprites(&mut self, x: u8, y: u8, sprites: &[u8]) -> Option<u8> {
         let mut collision = 0u8;
-       
+        let mut x = x;
+        let mut y = y;
+
+        if x > DISPLAY_VISIBLE_WIDTH as u8 {
+            x %= DISPLAY_VISIBLE_WIDTH as u8;
+        }
+
+        if y > DISPLAY_VISIBLE_HEIGHT as u8 {
+            y %= DISPLAY_VISIBLE_HEIGHT as u8;
+        }
+
         // calculate correct offset in bytes and bits
         let byte_offset = (x as usize)  / 8;
         let bit_offset = (x as usize) % 8;
@@ -180,6 +190,7 @@ impl VideoMemory for Display {
             println!("sprite_8 {:08b}, sprite_16 {:016b}, res: {:016b}",
                      sprites[s], sprite_row_apply, row);
         }
+
         gdb(&self.memory[..]);
 
         println!("collision {}", collision);
