@@ -1,7 +1,5 @@
 const ROM_START_ADDR: usize = 0;
-const ROM_END_ADDR: usize = 0x1FF;
 const EXE_START_ADDR: usize = 0x200;
-const EXE_END_ADDR: usize = 0xFFF;
 const SPRITE_SIZE: usize = 0x5;
 pub const MEM_SIZE: usize = 0xFFF;
 const STACK_SIZE: usize = 32;
@@ -24,7 +22,6 @@ pub trait CpuMemory {
 pub struct Memory {
     memory: [u8; MEM_SIZE],
     stack_top: usize,
-    stack_len: usize,
 }
 
 impl Clone for Memory {
@@ -36,7 +33,6 @@ impl Memory {
         Memory {
             memory: [0; MEM_SIZE],
             stack_top: STACK_START_ADDR,
-            stack_len: STACK_SIZE,
         }
     }
 
@@ -180,12 +176,13 @@ impl VideoMemory for Display {
             self.memory[curr_r][byte_offset] = (row >> 8) as u8;
             self.memory[curr_r][(byte_offset + 1)] = row as u8;
                 
-            collision = (row & row_prev != row_prev) as u8;;
+            collision |= (row & row_prev != row_prev) as u8;;
             println!("sprite_8 {:08b}, sprite_16 {:016b}, res: {:016b}",
                      sprites[s], sprite_row_apply, row);
         }
         gdb(&self.memory[..]);
 
+        println!("collision {}", collision);
         Some(collision)
     }
     
